@@ -24,11 +24,11 @@ from geometry_msgs.msg import Twist, Pose, Pose2D
 
 
 class SBPComm(object):
-	tow = 0 #GPS time of week43.5330611796, -80.2193396999
+	tow = 0 #GPS time of week 43.5330611796, -80.2193396999
 	rtk_tow = 0 #RTK GPS time of week
 	dop = {"gdop":0.0, "pdop":0.0, "tdop":0.0, "vdop":0.0, "hdop":0.0} #Dilution of Precision measurements
 	n_sats = 0 #Number of satellites used for GPS measurement
-	status = -1 #Status flags. 
+	status = -1 #Status flags.
 	vn = 0.0   #North velocity in m/s
 	ve = 0.0   #East velocity in m/s
 	vd = 0.0   #Down velocity in m/s
@@ -74,20 +74,20 @@ class SBPComm(object):
 			SBPComm.rtk_tow = msg.tow
 		elif msg.msg_type == SBP_MSG_HEARTBEAT:
 			SBPComm.heartbeat+=1
-			
+
 	#Parse GPS coordinates from handler only
 	@staticmethod
 	def simple_read():
 		with PySerialDriver(USB_Piksi, baud=1000000) as driver:
-			with Handler(Framer(driver.read, None, verbose=False)) as source:		
+			with Handler(Framer(driver.read, None, verbose=False)) as source:
 				for msg, metadata in source.filter(SBP_MSG_POS_LLH):
 					# Store the latitude, longitude and number of satellites
 					#print "Lat:", msg.lat, "Lon:", msg.lon, "nSats:", msg.n_sats
-					
+
 					SBPComm.lat, SBPComm.lon = msg.lat, msg.lon
 					SBPComm.height = msg.height
 					SBPComm.n_sats = msg.n_sats
-					
+
 	@staticmethod
 	def pt_cb(data):
 		SBPComm.speed = data.linear.x
@@ -99,16 +99,16 @@ def main():
 	pub3 = rospy.Publisher("gps_vel",Twist,queue_size=10)
 	pub4 = rospy.Publisher("gps_heading",Pose2D,queue_size=10)
 	rospy.init_node("gps_node",anonymous=False)
-	rospy.Subscriber("pt_cmd",Twist, SBPComm.pt_cb)
+	rospy.Subscriber("pt_cmd",Twist, SBPComm.pt_cb)   								#/cmd_vel_mux/input/navi
 	rate = rospy.Rate(20)
 	h_cnt = 0
 	last_north, last_east = None, None
 	lastCoord = None
-	
+
 	heading_sample_t = 1000
 	if rospy.has_param("~heading_sample_t"):
 		heading_sample_t = rospy.get_param("~heading_sample_t")
-	heading_sample_t/=100	
+	heading_sample_t/=100
 	heartbeat = SBPComm.heartbeat
 	timeout_cnt = 0
 	disconnected = True
@@ -121,18 +121,18 @@ def main():
 			disconnected = True
 		else:
 			timeout_cnt+=1
-			
+
 		if tow != SBPComm.tow:
 			disconnected = False
 			msg.header.stamp = rospy.get_rostime()
 			msg.latitude, msg.longitude = SBPComm.lat, SBPComm.lon
 			msg.altitude = SBPComm.height
-			
+
 			baseError = 3.0
 			msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_APPROXIMATED
 			if SBPComm.status == 0:
 				msg.status.status = NavSatStatus.STATUS_FIX
-				
+
 				if h_cnt >= heading_sample_t:
 					h_cnt = 0
 					h_msg = Pose2D()
@@ -151,7 +151,7 @@ def main():
 				if SBPComm.status == 2:
 					baseError = 2.0
 					msg.status.status = NavSatStatus.STATUS_FIX
-					
+
 				if h_cnt >= heading_sample_t:
 					h_cnt = 0
 					h_msg = Pose2D()
@@ -163,27 +163,27 @@ def main():
 					rospy.loginfo(s)
 					last_north = SBPComm.baseline['n']
 					last_east = SBPComm.baseline['e']
-					
+
 				elif last_north is None:
 					last_north = SBPComm.baseline['n']
 					last_east = SBPComm.baseline['e']
-				
-				
-				
+
+
+
 			if SBPComm.speed > 0.0:
 				h_cnt+=1
-				
+
 			bl_msg = Pose()
 			bl_msg.position.x, bl_msg.position.y, bl_msg.position.z = SBPComm.baseline['n'], SBPComm.baseline['e'], SBPComm.baseline['d']
 			pub2.publish(bl_msg)
-			
+
 			v_msg = Twist()
 			v_msg.linear.x, v_msg.linear.y, v_msg.linear.z = SBPComm.vn, SBPComm.ve, SBPComm.vd
 			pub3.publish(v_msg)
-			
+
 			for i in range(0,6,4):
 				msg.position_covariance[i] = (SBPComm.dop['hdop']*baseError)**2.0
-				
+
 			msg.position_covariance[8] = (SBPComm.dop['vdop']*baseError)**2.0
 			heading_period = heading_sample_t/10.0
 			speed = math.sqrt(SBPComm.vn**2.0 + SBPComm.ve**2.0)
@@ -195,13 +195,13 @@ def main():
 		elif disconnected:
 			msg.status.status = NavSatStatus.STATUS_NO_FIX
 			pub1.publish(msg)
-		
-				
+
+
 		tow = SBPComm.tow
 
 
-		rate.sleep()	
-		
+		rate.sleep()
+
 if __name__ == "__main__":
 	if rospy.has_param("~piksi_port"):
 		SBPComm.port = rospy.get_param("~piksi_port")

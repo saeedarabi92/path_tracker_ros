@@ -1,32 +1,65 @@
 <!--Example launch file for getting a vehicle to track a path -->
 <launch>
   <!--GPS Node that receives measurements from Swift Piksi receiver -->
+
+
+  <!-- pub1 = rospy.Publisher("gps",NavSatFix,queue_size=10)
+	pub2 = rospy.Publisher("baseline",Pose,queue_size=10)
+	pub3 = rospy.Publisher("gps_vel",Twist,queue_size=10)
+	pub4 = rospy.Publisher("gps_heading",Pose2D,queue_size=10)
+	rospy.init_node("gps_node",anonymous=False)
+	rospy.Subscriber("pt_cmd",Twist, SBPComm.pt_cb)
+   -->
+
   <node pkg="pt_nav" type="GPSNode.py" name="GPSNode">
     <param name="heading_sample_t" type="int" value="200"/>
   </node>
+
+
+
+  <!--
+  publish transform between base_link and gps_link
+  -->
+
   <node pkg="pt_nav" type="TFNode.py" name="TFNode">
-    <param name="piksi_x" type="double" value="0.0"/> 
-    <param name="piksi_y" type="double" value="0.0"/> 
+    <param name="piksi_x" type="double" value="0.0"/>
+    <param name="piksi_y" type="double" value="0.0"/>
   </node>
+
+
   <!--Kalman Filter node. Outputs filtered positons from GPS coordinates -->
   <!--and sent velocity commands -->
+
+  <!--
+  pub = rospy.Publisher('kf_pose', Pose2D, queue_size=10)
+  rospy.init_node('kf_node', anonymous=True)
+  rospy.Subscriber("imu", Imu, ekf.imu_cb)
+  rospy.Subscriber("gps", NavSatFix, ekf.gps_cb)
+  rospy.Subscriber("base_gps", Pose, ekf.base_gps_cb)
+  rospy.Subscriber("gps_heading", Pose2D, ekf.gps_heading_cb)
+  rospy.Subscriber("pt_cmd",Twist, ekf.enc_cb)
+  -->
   <node pkg="pt_nav" type="KFNode.py" name="Nav_KF"/>
+
+
+
   <!--Navigation server that receives desired paths and attempts to follow them -->
   <node pkg="pt_actions" type="NavServer.py" name="ptServer"/>
   <!--Example navigation client that uses the server to follow a path -->
   <node pkg="pt_example_client" type="NavClient.py" name="ptClient">
-    <param name="desired_speed" type="double" value="2.0"/>
+
+    <param name="desired_speed" type="double" value="0.5"/>
     <param name="max_angular_velocity" type="double" value="1.0"/>
     <!--Sets the number of loops do do on path. Must be a closed path -->
     <param name="loops" type="int" value="1"/>
     <!--Auto generates a square path to follow from the start point -->
-    <param name="auto_gen_bounds" type="bool" value="true"/>
-    <param name="auto_bounds_size" type="int" value="20"/>
+    <param name="auto_gen_bounds" type="bool" value="false"/>
+    <param name="auto_bounds_size" type="int" value="1"/>
     <param name="auto_start_heading" type="double" value="0.0"/>
     <!-- Define the shape of path to generate. Options are circle or square -->
-    <param name="auto_shape" type="str" value="circle"/>
+    <!-- <param name="auto_shape" type="str" value="square"/> -->
 
     <!--Input file that defines the points that make up the path to follow -->
-    <!--<param name="input_file" type="str" value="PathToInputFile"/>-->
+    <param name="input_file" type="str" value="PathToInputFile"/>
   </node>
 </launch>

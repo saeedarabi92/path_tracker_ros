@@ -11,12 +11,16 @@
 #All rights reserved.
 
 import rospy
-import math 
+import math
 import threading
 import actionlib, tf
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from geometry_msgs.msg import Twist, Pose, Pose2D, Quaternion
 import GPSLib as gps
+from nav_msgs.msg import Odometry
+
+# import pt_actions
+
 
 class PurePursuit(threading.Thread):
 	TRACKER_STATUS_WAITING,TRACKER_STATUS_ACTIVE = 0,1
@@ -50,23 +54,23 @@ class PurePursuit(threading.Thread):
 		self.status = self.TRACKER_STATUS_WAITING
 		self.setDaemon(True)
 		self.start()
-		
+
 	def run(self):
 		while not self.stopping:
 			if rospy.is_shutdown(): #Stop if ROS is shutdown
 				self.stopping = True
 			if not self.tracking:
 				continue
-					
-			
+
+
 			kf_time = self.kf_ts.secs + self.kf_ts.nsecs/1e9
 			if kf_time > self.ppc_time: #Wait for a pose measurement
 				self.ppc_time = kf_time
 			else:
 				continue
-			
-			
-			
+
+
+
 			if self.preempted: #Stop if client preempts goal
 				self.cmd.linear.x = 0.0
 				self.cmd.angular.z = 0.0
@@ -82,26 +86,26 @@ class PurePursuit(threading.Thread):
 			self.trackedPoint = self.findClosestPoint()
 
 			#Starting from closest point, move up path and find the goal point
-			goalPoint = self.findGoalPoint()	
+			goalPoint = self.findGoalPoint()
 			if goalPoint is None: #No goalpoint found, finished
-				
+
 				self.cmd.linear.x = 0.0
 				self.cmd.angular.z = 0.0
-				
+
 				self.tracking = False
 				stopDistance = gps.getDistance(self.pose,self.path[self.trackedPoint])
 				if stopDistance > 5.0:
 					self.failed = True
-			
+
 			else:
 				#Tranform the goal point into vehicle coordinates
 				vehicleCoord = gps.getDistCoord(goalPoint,self.pose,self.heading)
-					
+
 				#Caclulate the angular velocity to send
 				self.cmd.linear.x = self.desired_speed
-				
+
 				curvature = self.desired_speed*2.0*vehicleCoord['x']/self.lookahead_distance**2.0
-				
+
 				s =  "Goal Point:" + str(goalPoint['lat']) + "," + str(goalPoint['lon']) + "\n"
 				rospy.loginfo(s)
 				#Constrain values to stay less than the max angular rate
@@ -109,8 +113,8 @@ class PurePursuit(threading.Thread):
 					self.cmd.angular.z = min(self.max_angular_rate, curvature)
 				elif curvature < 0.0:
 					self.cmd.angular.z = max(-self.max_angular_rate,curvature)
-				
-				 
+
+
 	def findClosestPoint(self):
 		curPose = gps.getCoord(self.pose,self.trans,self.rot)
 		distances = [gps.getDistance(curPose,coord) for coord in self.path]
@@ -120,9 +124,9 @@ class PurePursuit(threading.Thread):
 			if distances[i] < minDistance:
 				minDistance = distances[i]
 				pointIndex = i
-				
+
 		return pointIndex
-	
+
 	def findGoalPoint(self):
 		found = False
 		pointIndex = self.trackedPoint
@@ -137,7 +141,7 @@ class PurePursuit(threading.Thread):
 		goalPoint = None
 		spacing = 0.001
 		curPose = gps.getCoord(self.pose,self.trans,self.rot)
-		
+
 		closestPoint = None
 		closestDistance = -1.0
 		if self.finishedLoop:
@@ -158,25 +162,25 @@ class PurePursuit(threading.Thread):
 			elif closestDistance > goalDistance:
 				closestDistance = goalDistance
 				closestPoint = goalPoint
-			
+
 			if goalDistance >= self.lookahead_distance-0.1 and goalDistance <= self.lookahead_distance+0.1:
 				found = True
 			elif goalDistance > self.lookahead_distance+1.0:
 				return closestPoint
-				
+
 			curPoint = goalPoint
 			distance+=spacing
 			if distance >= distanceToNext:
 				if pointIndex < len(self.path)-1:
 					pointIndex+=1
-					
+
 					distance = 0.0
 					curPoint = self.path[pointIndex]
 					curHeading = self.path[pointIndex]['heading']
 					if pointIndex == len(self.path)-1:
 						self.finishedLoop = True
 						distanceToNext = gps.getDistance(curPoint, self.path[0])
-					else:	
+					else:
 						distanceToNext = gps.getDistance(curPoint,self.path[pointIndex+1])
 				elif pointIndex == len(self.path)-1:
 					if self.loops > 1:
@@ -189,17 +193,20 @@ class PurePursuit(threading.Thread):
 						return None
 				else: #Reached the end of path. No lookahead point found
 					return closestPoint
-					
+
 		return goalPoint
 
 	def setPreempted(self):
 		self.preempted = True
-		
-	def kf_cb(self,data):
-		self.pose['lat'], self.pose['lon'] = data.x, data.y
-		self.heading = data.theta
+
+	def odom_cb(self,data):
+		# self.pose['lat'], self.pose['lon'] = data.x, data.y
+		self.pos['lat'], self.pos['lon'] = data.pose.pose.position.x, data.pose.pose.position.y
+		# self.heading = data.theta
+		self.yaw = data.pose.pose.orientation
 		self.kf_ts = rospy.get_rostime()
-		
+
+
 class NavigateAction(object):
 	MAX_ANGULAR_RATE = math.pi/5.0
 	TRACKER_STATUS_WAITING,TRACKER_STATUS_ACTIVE = 0,1
@@ -210,7 +217,8 @@ class NavigateAction(object):
 		self.yaw = 0.0
 		self.nav_sat = NavSatFix()
 		self.rtk_timeout = 0
-		self.actuator = rospy.Publisher("pt_cmd",Twist,queue_size=10)
+		# self.actuator = rospy.Publisher("pt_cmd",Twist,queue_size=10)      # the topic need to be change to /cmd_vel_mux/input/navi
+		self.actuator = rospy.Publisher("/cmd_vel_mux/input/navi",Twist,queue_size=10)
 		self.feedback = pt_actions.msg.NavigateFeedback()
 		self.result = pt_actions.msg.NavigateResult()
 		self.base = rospy.Publisher("base_gps",Pose,queue_size=10)
@@ -224,7 +232,7 @@ class NavigateAction(object):
 		self.externalControl = False
 		if rospy.has_param("~auto_lookahead"):
 			self.PPC.auto = rospy.get_param("~auto_lookahead")
-	
+
 	def findClosestPoint(self,goal):
 		pose = {'lat':self.nav_sat.latitude,'lon':self.nav_sat.longitude}
 		coord = {'lat':goal.lats[0],'lon':goal.lons[0]}
@@ -233,30 +241,30 @@ class NavigateAction(object):
 		for i in range(1,len(goal.lats)-1):
 			coord = {'lat':goal.lats[i],'lon':goal.lons[i]}
 			distance = gps.getDistance(pose,coord)
-			if distance < minDistance: 
+			if distance < minDistance:
 				minDistance = distance
 				closestPoint = i
-		
+
 		return closestPoint
-		
+
 	def follow_path(self, goal):
 		rospy.loginfo("Starting path")
 		success = True
 		waiting = True
 		r = rospy.Rate(1)
 
-			
+
 		#Wait for the GPS to get an RTK lock
 		while waiting:
 			if self.nav_sat.status.status == NavSatStatus.STATUS_GBAS_FIX or rospy.is_shutdown():
 				waiting = False
 				break
-				
-				
+
+
 			r.sleep()
-			
+
 		#Initialize the Kalman Filter by finding closest point on path and sending it a base coordinate.
-		baseCoord = Pose()			
+		baseCoord = Pose()
 		nCoords = len(goal.lats)
 		baseCoord.position.x, baseCoord.position.y, baseCoord.position.z = goal.lats[0], goal.lons[0], self.nav_sat.altitude
 		closestPoint = self.findClosestPoint(goal)
@@ -269,12 +277,12 @@ class NavigateAction(object):
 		startQ = tf.transformations.quaternion_from_euler(0.0,0.0,startHeading)
 		print "Base Heading:",math.degrees(startHeading)
 		baseCoord.orientation.x, baseCoord.orientation.y = startQ[0], startQ[1]
-		baseCoord.orientation.z, baseCoord.orientation.w = startQ[2], startQ[3]
-		
-		
+		baseCoord.orientation.z, baseCoord.orientation.w = startQ[2], startQ[3]   # info regarding quaternion and euler transformation:  https://answers.ros.org/question/69754/quaternion-transformations-in-python/
+
+
 		self.base.publish(baseCoord)
 		NavigateAction.baseCoord = baseCoord
-			
+
 		path = []
 		lastHeading = 0.0
 		for i in range(len(goal.lats)):
@@ -290,7 +298,7 @@ class NavigateAction(object):
 					coord['heading'] = gps.calcBearing(coord,path[0]);
 
 			path.append(coord)
-			
+
 		self.PPC.path = path
 		self.PPC.lookahead_distance = goal.lookahead_distance
 		self.PPC.desired_speed = goal.desired_speed
@@ -307,7 +315,7 @@ class NavigateAction(object):
 				deltaTime = (curTime.secs - lastTime.secs) + (curTime.nsecs-lastTime.nsecs)/1e9
 				#s =  "Period: " + str(deltaTime)
 				#rospy.loginfo(s)
-				lastTime.secs, lastTime.nsecs = curTime.secs, curTime.nsecs 
+				lastTime.secs, lastTime.nsecs = curTime.secs, curTime.nsecs
 				if rospy.is_shutdown():
 					break
 				if self.rtk_timeout >= 10 or self.externalControl: #Only send commands when we have an RTK lock
@@ -341,24 +349,26 @@ class NavigateAction(object):
 				success = False
 				self._as.set_aborted()
 				break
-				
+
 		if success:
 			rospy.loginfo('%s: Succeeded' % self._action_name)
 			rospy.loginfo("Travelled " + str(self.PPC.distanceTravelled) + " metres")
 			self.result.end_lat, self.result.end_lon = self.PPC.pose['lat'], self.PPC.pose['lon']
 			self.result.end_distance = gps.getDistance(self.PPC.path[len(self.PPC.path)-1],self.PPC.pose)
 			self._as.set_succeeded(self.result)
-	
+
 	def preempt_cb(self):
 		self.preempted = True
 		self.PPC.setPreempted()
-			
-	def kf_cb(self,data):
-		self.pos['lat'], self.pos['lon'] = data.x, data.y
-		self.yaw = data.theta
-		self.PPC.kf_cb(data)
+
+	def odom_cb(self,data):
+		# self.pos['lat'], self.pos['lon'] = data.x, data.y
+		self.pos['lat'], self.pos['lon'] = data.pose.pose.position.x, data.pose.pose.position.y
+		# self.yaw = data.theta
+		self.yaw = data.pose.pose.orientation
+		self.PPC.odom_cb(data)
 		#print str(self.pos['lat']) + ",",self.pos['lon']
-		
+
 	def gps_cb(self,data):
 		self.nav_sat = data
 		if self.nav_sat.status.status != NavSatStatus.STATUS_GBAS_FIX:
@@ -366,12 +376,14 @@ class NavigateAction(object):
 		else:
 			self.rtk_timeout = 0
 		self.gps_ts = rospy.get_rostime()
-			
-		
+
+
 if __name__ == '__main__':
 	rospy.init_node('ptServer')
 	nav = NavigateAction(rospy.get_name())
-	rospy.Subscriber("kf_pose", Pose2D, nav.kf_cb)
-	rospy.Subscriber("gps",NavSatFix,nav.gps_cb)
+	# rospy.Subscriber("kf_pose", Pose2D, nav.kf_cb)
+	rospy.Subscriber("/odometry/filtered/global", Odometry, nav.odom_cb)
+	# rospy.Subscriber("gps",NavSatFix,nav.gps_cb)
+	rospy.Subscriber("/piksi/navsatfix_best_fix", NavSatFix,nav.gps_cb)
 
 	rospy.spin()
