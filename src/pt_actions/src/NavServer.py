@@ -203,9 +203,8 @@ class PurePursuit(threading.Thread):
 		# self.pose['lat'], self.pose['lon'] = data.x, data.y
 		self.pos['lat'], self.pos['lon'] = data.pose.pose.position.x, data.pose.pose.position.y
 		# self.heading = data.theta
-		self.yaw = data.pose.pose.orientation
+		self.heading = data.pose.pose.orientation
 		self.kf_ts = rospy.get_rostime()
-
 
 class NavigateAction(object):
 	MAX_ANGULAR_RATE = math.pi/5.0
